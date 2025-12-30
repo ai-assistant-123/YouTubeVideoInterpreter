@@ -1,0 +1,5 @@
+{
+  "name": "YouTube Video Interpreter",
+  "description": "An intelligent tool that interprets YouTube videos chapter by chapter using Gemini 3 Flash, supporting multiple styles and bilingual interfaces.",
+  "requestFramePermissions": []
+}
