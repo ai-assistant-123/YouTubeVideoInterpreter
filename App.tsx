@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Language, AnalysisStyle, KnowledgeLevel, VideoInfo, InterpretationHistory, Chapter } from './types';
 import { UI_STRINGS } from './constants';
@@ -23,6 +24,10 @@ const App: React.FC = () => {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // Settings State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [customApiKey, setCustomApiKey] = useState('');
 
   const pdfTemplateRef = useRef<HTMLDivElement>(null);
 
@@ -82,7 +87,7 @@ const App: React.FC = () => {
       setLoadingStep(null);
       if (window.innerWidth < 768) setIsSidebarCollapsed(true);
     } catch (err: any) {
-      setError(t.errorFetchFailed);
+      setError(t.errorFetchFailed + (err.message ? ` (${err.message})` : ''));
       setLoading(false);
       setLoadingStep(null);
     }
@@ -212,15 +217,68 @@ const App: React.FC = () => {
     }
   };
 
+  const openSettings = () => {
+    setCustomApiKey(storageService.getApiKey() || '');
+    setIsSettingsOpen(true);
+  };
+
+  const saveSettings = () => {
+    storageService.saveApiKey(customApiKey);
+    setIsSettingsOpen(false);
+  };
+
   const currentSources = currentVideo ? groundingSources[currentVideo.chapters[activeChapterIndex]?.id] || [] : [];
   const hasSomeResults = Object.keys(analysisResults).length > 0;
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row text-gray-900 bg-[#f8f9fa] overflow-hidden">
+      
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-black text-gray-900 mb-4 flex items-center gap-2">
+              <i className="fas fa-cog text-gray-400"></i> {t.settingsTitle}
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">{t.apiKeyLabel}</label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={customApiKey}
+                    onChange={(e) => setCustomApiKey(e.target.value)}
+                    placeholder={t.apiKeyPlaceholder}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-red-500 transition-all outline-none font-mono text-sm shadow-inner"
+                    autoComplete="off"
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                    <i className="fas fa-key"></i>
+                  </div>
+                </div>
+                <p className="mt-2 text-[10px] text-gray-400 leading-relaxed">{t.apiKeyHelp}</p>
+              </div>
+              <div className="flex gap-3 pt-4 border-t border-gray-100 mt-2">
+                <button 
+                  onClick={() => setIsSettingsOpen(false)}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition-all"
+                >
+                  {t.cancelBtn}
+                </button>
+                <button 
+                  onClick={saveSettings}
+                  className="flex-1 px-4 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-200"
+                >
+                  {t.saveBtn}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 
           OFF-SCREEN PDF TEMPLATE 
-          Critical fix: html2pdf/html2canvas cannot render elements with display: none 
-          because they have no layout dimensions. We use position: absolute and left: -9999px.
       */}
       <div 
         style={{ position: 'absolute', left: '-9999px', top: 0, width: '800px' }} 
@@ -273,6 +331,13 @@ const App: React.FC = () => {
             <h1 className="text-lg font-black tracking-tight">{t.appTitle}</h1>
           </div>
           <div className="flex items-center gap-2">
+            <button 
+              onClick={openSettings}
+              className="w-8 h-7 flex items-center justify-center text-[12px] bg-gray-100 rounded-md text-gray-500 hover:bg-gray-200 transition-colors"
+              title={t.settingsTitle}
+            >
+              <i className="fas fa-cog"></i>
+            </button>
             <button 
               onClick={() => setLang(lang === Language.ZH ? Language.EN : Language.ZH)}
               className="px-2 py-1 text-[10px] font-bold bg-gray-100 rounded-md text-gray-500 hover:bg-gray-200 uppercase transition-colors"

@@ -3,6 +3,7 @@ import { InterpretationHistory, Language, AnalysisStyle, KnowledgeLevel } from '
 
 const HISTORY_KEY = 'yt_interpreter_history';
 const PREFS_KEY = 'yt_interpreter_prefs';
+const API_KEY_STORAGE = 'yt_interpreter_api_key';
 
 export function saveHistory(item: InterpretationHistory) {
   const history = getHistory();
@@ -32,4 +33,16 @@ export function savePrefs(lang: Language, style: AnalysisStyle, level: Knowledge
 export function getPrefs(): { lang: Language, style: AnalysisStyle, level: KnowledgeLevel } | null {
   const data = localStorage.getItem(PREFS_KEY);
   return data ? JSON.parse(data) : null;
+}
+
+export function saveApiKey(key: string) {
+  if (!key) {
+    localStorage.removeItem(API_KEY_STORAGE);
+  } else {
+    localStorage.setItem(API_KEY_STORAGE, key);
+  }
+}
+
+export function getApiKey(): string | null {
+  return localStorage.getItem(API_KEY_STORAGE);
 }

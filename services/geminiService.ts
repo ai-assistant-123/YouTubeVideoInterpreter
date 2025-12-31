@@ -1,14 +1,59 @@
-
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { AnalysisStyle, KnowledgeLevel, Language, Chapter, VideoInfo } from '../types';
+import { getApiKey } from './storageService';
 
 export interface AnalysisResponse {
   text: string;
   sources: { title: string; uri: string }[];
 }
 
+function getClient(): GoogleGenAI {
+  const apiKey = getApiKey() || process.env.API_KEY || '';
+  return new GoogleGenAI({ apiKey });
+}
+
+// Helper: Retry operation with exponential backoff
+async function retryOperation<T>(
+  operation: () => Promise<T>, 
+  maxRetries: number = 3, 
+  baseDelay: number = 1000
+): Promise<T> {
+  let lastError: any;
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      
+      // Identify retryable errors: Network, 5xx, or specific RPC failures
+      const isRetryable = 
+        error.message?.includes('fetch') || 
+        error.message?.includes('network') ||
+        error.message?.includes('xhr') ||
+        error.message?.includes('Rpc') ||
+        error.status >= 500;
+
+      if (!isRetryable && i < maxRetries - 1) {
+         // Even for some unknown errors, it might be worth one retry, but let's be strict for now
+         // actually, "Rpc failed due to xhr error" often comes without a standard status code
+      }
+
+      if (isRetryable && i < maxRetries - 1) {
+        const delay = baseDelay * Math.pow(2, i);
+        console.warn(`Gemini API request failed (Attempt ${i + 1}/${maxRetries}). Retrying in ${delay}ms...`, error.message);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
 export async function extractChaptersFromUrl(url: string, title: string): Promise<Chapter[]> {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  const ai = getClient();
   
   const prompt = `You are a YouTube Metadata Expert.
   Task: Identify the chapters/segments for this video: "${title}" (${url}).
@@ -26,14 +71,14 @@ export async function extractChaptersFromUrl(url: string, title: string): Promis
   Do not add any conversational text. Only the list.`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await retryOperation<GenerateContentResponse>(() => ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
         temperature: 0.1,
       },
-    });
+    }));
 
     const text = response.text || "";
     const lines = text.split('\n');
@@ -76,7 +121,7 @@ export async function extractChaptersFromUrl(url: string, title: string): Promis
       }
     }
 
-    // Fallback if extraction failed
+    // Fallback if extraction failed to produce chapters
     if (chapters.length === 0) {
       return [
         { id: 'p1', title: 'Beginning & Context', startTime: 0, endTime: 300 },
@@ -89,7 +134,7 @@ export async function extractChaptersFromUrl(url: string, title: string): Promis
     return chapters;
   } catch (error) {
     console.error("Chapter Extraction Error:", error);
-    // Fallback Mock
+    // Fallback Mock so app doesn't crash
     return [{ id: 'full', title: 'Complete Analysis', startTime: 0, endTime: 3600 }];
   }
 }
@@ -184,7 +229,7 @@ export async function analyzeChapter(
   level: KnowledgeLevel,
   lang: Language
 ): Promise<AnalysisResponse> {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  const ai = getClient();
   
   const targetLang = lang === Language.ZH ? 'Simplified Chinese (简体中文)' : 'English';
   
@@ -221,7 +266,7 @@ export async function analyzeChapter(
   `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await retryOperation<GenerateContentResponse>(() => ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: userPrompt,
       config: {
@@ -229,7 +274,7 @@ export async function analyzeChapter(
         tools: [{ googleSearch: {} }],
         temperature: 0.4, // Slightly lower for more factual adherence
       },
-    });
+    }));
 
     const text = response.text || "Failed to generate interpretation.";
     const sources: { title: string; uri: string }[] = [];
@@ -245,8 +290,17 @@ export async function analyzeChapter(
     }
 
     return { text, sources };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini Analysis Error:", error);
-    throw new Error("Analysis failed. Gemini API may be busy or the video content is restricted.");
+    // Provide a more user-friendly error message
+    let msg = "Analysis failed. ";
+    if (error.message?.includes('fetch') || error.message?.includes('network')) {
+       msg += "Network connection error. Please check your internet.";
+    } else if (error.message?.includes('401') || error.message?.includes('403')) {
+       msg += "Invalid or expired API Key.";
+    } else {
+       msg += "The AI service is currently busy or the request was blocked. Please try again later.";
+    }
+    throw new Error(msg);
   }
 }
